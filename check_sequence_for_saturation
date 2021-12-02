@@ -1,0 +1,23 @@
+#!/bin/bash
+
+foldername=$1
+
+curr_max_val=0
+
+for file in `ls ${foldername}/*.nii`; do
+
+    #echo ${file}
+    max_val=`fslstats ${file} -p 95` ## account for outliers
+    #echo "max is ${max_val}"
+
+    #if [ ${max_val} -lt ${curr_max_val} ]; then
+    if (( $(echo "${max_val} > ${curr_max_val}" | bc -l) )); then
+    #    echo "new max"
+        curr_max_val=${max_val}
+        #echo ${file}
+    fi
+        
+done
+
+#echo "total max is $curr_max_val"
+echo $curr_max_val

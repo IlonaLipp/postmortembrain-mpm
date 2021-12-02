@@ -1,0 +1,32 @@
+#!/bin/bash
+receive_nifti_folder=$1
+transmit_nifti_folder=$2
+temp_folder=$3
+output_filename=$4
+output_filename_2=$5
+
+echo "calculating receive bias maps"
+
+if [ -d ${temp_folder} ]; then
+
+	for echotime in $(seq 1); do ### after echo 8 there is not much signal, in TC there are some middle echos in some brains that are completely corrupted, also there are distortions between echos
+		### divide receive by transmit
+		#echo "echo ${echotime}"
+		fslmaths ${receive_nifti_folder}/*-${echotime}.nii -div ${transmit_nifti_folder}/*-${echotime}.nii ${temp_folder}/killme_bias_${echotime}.nii
+	done
+	### calculate average bias across echos
+	echo "merging"
+	fslmerge -t ${temp_folder}/killme_all_bias.nii ${temp_folder}/killme_bias_*.nii
+	fslmaths ${temp_folder}/killme_all_bias.nii -Tmedian ${output_filename} #${temp_folder}/killme_mean_bias.nii
+	cp ${temp_folder}/killme_all_bias.nii ${output_filename_2}
+	### smooth
+	echo "smooth"
+	#fslmaths ${temp_folder}/killme_mean_bias.nii -kernel gauss ${smoothing_kernel_size} -fmean ${output_filename}
+	#echo "fslmaths ${temp_folder}/killme_mean_bias.nii -kernel gauss ${smoothing_kernel_size} -fmean ${output_filename}"
+	### delete temp files
+	yes | rm ${temp_folder}/killme*
+else
+	echo "please provide me with a folder that exists where i can shuff all the temp files, thanks"
+fi
+
+

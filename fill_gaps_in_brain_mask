@@ -1,0 +1,14 @@
+#!/bin/bash
+### run in terminal as e.g. bash fill_gaps_in_brain_mask input.nii output.nii 5 /home/raid2/lippi
+#cd /home/raid2/lippi
+
+inputfile=$1
+outputfile=$2
+kernelsize=$3
+tempdir=$4
+
+fslmaths ${inputfile} -dilM -s ${kernelsize} ${tempdir}/killmedil.nii
+fslmaths ${tempdir}/killmedil.nii -bin ${tempdir}/killmedilbin.nii
+fslmaths ${tempdir}/killmedil.nii -kernel ${kernelsize} -ero ${tempdir}/killmemask
+fslmaths ${tempdir}/killmemask.nii -thr .5 -bin ${outputfile}
+yes | rm ${tempdir}/killme*

@@ -1,0 +1,60 @@
+#!/bin/bash
+#bash ~/Documents/scripts/postmortembrain-mpm/functions/interpolate_bad_r2s /data/pt_02101/preprocessed/001_C_W_EMMA_IDXXX/mr/191102_Magnetom_7T_32Ch_WB/MPMs/R2s_rbc_0p3_run01_brain_masked.nii killmebubb.nii killmebubb_r2s_interp.nii /data/dt_transfer/Lippi2Scheibchen
+
+#written by IL, inspired by PS
+
+r2s_map=$1 ### R2s_rbc_0p3_run01_brain_masked.nii
+bubble_mask=$2
+bubble_mask_final=$3
+out_map=$4
+temp_folder=$5
+
+## binary mask of bubble affected areas (currently output of clustering of explained variance, done in .m)
+echo "fslmaths ${bubble_mask} -bin ${temp_folder}/killmecluster.nii"
+fslmaths ${bubble_mask} -bin ${temp_folder}/killmecluster.nii
+### here we need proper clustering, otherwise individual voxel outliers will create chaos!!!!! cluster ${bubble_mask}, clustering just yields very huge clusters
+cluster -i ${temp_folder}/killmecluster.nii -t 1 -o ${temp_folder}/killmekillme.nii --osize=${temp_folder}/killmeclustersize.nii --no_table
+fslmaths ${temp_folder}/killmeclustersize.nii -thr 50 ${temp_folder}/killmecluster_c.nii ### impose a minimum cluster size of 50 mavoxels
+
+## tidy up mask a bit
+#fslmaths ${temp_folder}/killmecluster.nii -kernel boxv 3 -dilM ${temp_folder}/killmecluster_d.nii
+#fslmaths ${temp_folder}/killmecluster_d.nii -kernel boxv 3 -ero ${temp_folder}/killmecluster_e.nii ## prev 2
+#cp ${temp_folder}/killmecluster_d.nii ${temp_folder}/killmecluster_e.nii
+fslmaths ${temp_folder}/killmecluster_c.nii -kernel boxv 5 -dilM -bin ${temp_folder}/killmecluster_d.nii
+fslmaths ${temp_folder}/killmecluster_d.nii -kernel boxv 3 -ero -bin ${temp_folder}/killmecluster_e.nii
+
+### threshold this new cluster map with the brain map
+fslmaths $r2s_map -bin ${temp_folder}/killmebrainmask
+fslmaths ${temp_folder}/killmecluster_e.nii -mul ${temp_folder}/killmebrainmask ${temp_folder}/killmebubbleareas
+
+cp ${temp_folder}/killmebubbleareas.nii ${bubble_mask_final}
+
+## dilate mask
+fslmaths ${temp_folder}/killmebubbleareas.nii -kernel sphere 1 -fmean ${temp_folder}/killmeclustersphered
+fslmaths ${temp_folder}/killmeclustersphered.nii -bin ${temp_folder}/killmeclustersphered.nii
+
+## just get area around masks
+fslmaths ${temp_folder}/killmeclustersphered.nii -sub ${temp_folder}/killmebubbleareas.nii ${temp_folder}/killmeclusterring.nii
+
+## get map to start dilating
+fslmaths ${r2s_map} -mul ${temp_folder}/killmeclusterring.nii ${temp_folder}/killmetodilate
+
+## let grow by taking average of nonzero voxels (2 voxels box)
+fslmaths ${temp_folder}/killmetodilate.nii -kernel boxv 2 -dilall ${temp_folder}/killmedilated
+
+file_to_fill="${temp_folder}/killmebubbleareas.nii" ### previously jsut cluster
+## bits to fill with
+fslmaths ${temp_folder}/killmedilated.nii -mul ${file_to_fill} ${temp_folder}/killmetofill
+
+## invert bubble mask
+fslmaths ${file_to_fill} -mul -1 -add 1 -bin ${temp_folder}/killmeclusterinvert
+
+### puzzle together old and new r2s maps
+fslmaths ${r2s_map} -mas ${temp_folder}/killmeclusterinvert.nii -add ${temp_folder}/killmetofill ${out_map}
+
+#yes | rm ${temp_folder}/killme*
+
+### check
+#fsleyes R2s_varnotexpl_rbc_0p3_run01.nii R2s_rbc_0p3_run01_brain_masked.nii killmetodilate.nii killmedilated.nii killmeinterpolated.nii
+
+

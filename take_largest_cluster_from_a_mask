@@ -1,0 +1,21 @@
+#!/bin/bash
+### bash ~/Documents/scripts/MPMs/functions/take_largest_cluster_from_a_mask input output
+
+input_mask=$1
+output_mask=$2
+temppath=$3
+
+#cd /home/raid2/lippi/Downloads
+
+echo ${temppath}
+
+### cluster
+cluster -i ${input_mask} -t 1 -o ${temppath}/currkillmeclusters --no_table
+
+### find biggest cluster 
+maxind=`fslstats ${temppath}/currkillmeclusters.nii -R | awk '{print $2}'`
+
+### threshold out background
+fslmaths ${temppath}/currkillmeclusters.nii -thr $maxind -bin ${output_mask}
+
+yes | rm ${temppath}/currkillme*

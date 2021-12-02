@@ -1,0 +1,41 @@
+#!/bin/bash
+
+inputfile=$1 ## b1map to process
+brainmaskfile=$2 ## in resolution of desired output, needs to be binary
+outputfile=$3 ## smoothed and upsampled b1 map is stored there
+kernelsize_median=$4 ## in mm for medianf
+kernelsize=$5 ## in mm for meanf
+tempfolder=$6 ## for intermediate files
+
+### downsample brain mask to b1:
+flirt -in ${brainmaskfile} -ref ${inputfile} -out ${tempfolder}/killme_bm_lowres.nii -applyxfm -usesqform
+
+### binarize downsampled brain mask:
+fslmaths ${tempfolder}/killme_bm_lowres.nii -thr .5 -bin ${tempfolder}/killme_bm_lowres.nii
+
+### smooth brainmasked low res with minimedian (do not mask before so that edges do not get super bad)
+fslmaths ${inputfile} -fmedian -kernel gauss ${kernelsize_median} ${tempfolder}/killme_b1_lowres_smooth.nii
+
+### smooth brainmasked low res b1
+fslmaths ${tempfolder}/killme_b1_lowres_smooth.nii -mas ${tempfolder}/killme_bm_lowres.nii -fmean -kernel gauss ${kernelsize} -mas ${tempfolder}/killme_bm_lowres.nii ${tempfolder}/killme_b1_lowres_smooth.nii
+
+### smooth low res brain mask
+fslmaths ${tempfolder}/killme_bm_lowres.nii -fmean -kernel gauss ${kernelsize} ${tempfolder}/killme_bm_lowres_smooth.nii
+
+### divide the two:
+fslmaths ${tempfolder}/killme_b1_lowres_smooth.nii -div ${tempfolder}/killme_bm_lowres_smooth.nii ${tempfolder}/killme_final_lowres
+
+### upsample smoothed b1:
+flirt -ref ${brainmaskfile} -in ${tempfolder}/killme_final_lowres.nii -out ${tempfolder}/killme_final_highres_interp.nii -applyxfm -usesqform -interp trilinear
+
+### upsample low res brain mask:
+flirt -ref ${brainmaskfile} -in ${tempfolder}/killme_bm_lowres.nii -out ${tempfolder}/killme_bm_highres_interp.nii -applyxfm -usesqform -interp trilinear
+
+### divide:
+fslmaths ${tempfolder}/killme_final_highres_interp.nii -div ${tempfolder}/killme_bm_highres_interp.nii ${tempfolder}/killme_final_highres.nii
+
+### brain mask processed b1:
+fslmaths ${tempfolder}/killme_final_highres -mul ${brainmaskfile} ${outputfile}
+
+### delete intermediates:
+yes | rm ${tempfolder}/killme*.nii

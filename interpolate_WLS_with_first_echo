@@ -1,0 +1,19 @@
+#!/bin/bash
+wls_map=$1 ### R2s_rbc_0p3_run01_brain_masked.nii
+firstecho_map=$2
+bubble_mask_final=$3
+out_map=$4
+temp_folder=$5
+
+fslmaths ${bubble_mask_final} -bin ${temp_folder}/killmebubble.nii
+fslmaths ${temp_folder}/killmebubble.nii -mul -1 -add 1 -bin ${temp_folder}/killmebubbleinvert.nii
+
+### WLS
+fslmaths $wls_map -mul ${temp_folder}/killmebubbleinvert.nii ${temp_folder}/killmeWLS.nii
+
+### first echo 
+fslmaths $firstecho_map -mul ${temp_folder}/killmebubble.nii ${temp_folder}/killmefirstecho.nii
+
+### add 
+
+fslmaths ${temp_folder}/killmeWLS.nii -add ${temp_folder}/killmefirstecho.nii ${out_map}
