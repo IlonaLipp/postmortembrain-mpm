@@ -1,6 +1,8 @@
 function MPM_calc_complete(param)
+    %%% this is the processing pipeline, which will do everything, given
+    %%% specifications in the param structure
 
-    %%% outputfilenames for QC stuff
+    %%% specify outputfilenames for QC stuff
     pdfoutputfilename = [param.processed_data_folder,'/',param.unique_id,'_session_parameters.pdf'];
     temperature_traceoutputfile = [param.processed_data_folder,'/',param.unique_id,'_temperature_trace.mat'];
     temperature_figureoutputfile = [param.processed_data_folder,'/',param.unique_id,'_temperature_trace.png'];
@@ -14,14 +16,16 @@ function MPM_calc_complete(param)
     end
     %%% run function 'convert_dicoms_to_nifti', which converts dicoms in folders that have empty corresponding nifti folders
     if param.redo_nifti_conversion == 1
-        if param.do_nifti_conversion_connectom_style == 1
+        if param.do_nifti_conversion_connectom_style == 1 %%% if the expected data structure is connectom style
             convert_dicoms_to_nifti_connectom(param.raw_data_folder_dicom, param.raw_data_folder_nifti);
-        else
+        else %%% if the expected data structure is 7T style
             convert_dicoms_to_nifti(param.raw_data_folder_dicom, param.raw_data_folder_nifti, param.do_not_check_niftis);
         end
     end
     
     %% find nifti folders
+    %%% takes as an input the sequence numbers in the param structure and
+    %%% finds the respective folder name for that series
     all_sequences = fieldnames(param.folder_series_numbers);
     for s = 1:length(all_sequences)
         seqname = all_sequences{s};
@@ -35,7 +39,7 @@ function MPM_calc_complete(param)
         system(['mkdir ', param.processed_data_folder]);
     end
 
-    %% create scan summary pdf and frequency drift plot and save scan times somehow
+    %% create scan summary pdf and frequency drift plot and save scan times 
     if exist(pdfoutputfilename) == 0 
         if exist(seriesinfo_outputfilename) == 0
             try
@@ -45,6 +49,7 @@ function MPM_calc_complete(param)
         end
     end
 
+    %% try to make temperature plot (if a temperature file is provided in param)
     if exist(temperature_traceoutputfile) == 0
         try %%% just so that whole thing does not shut down in case of temperature problem
             if param.dotemp == 1 && exist(param.tempfile) == 2
@@ -59,17 +64,20 @@ function MPM_calc_complete(param)
                     %%% this is updated file
                     scanner = 'Terra'; %
                 end
-                try
-                make_temperature_plot(param.tempfile, seriesinfo, temperature_traceoutputfile, temperature_figureoutputfile, scanner);
+                try %%% there are different ways this file was formated, which changed over time, so I had to write some work arounds to accommodate this.
+                    %%% will not work if the file format changes again
+                    make_temperature_plot(param.tempfile, seriesinfo, temperature_traceoutputfile, temperature_figureoutputfile, scanner);
                 catch
                     make_temperature_plot(param.tempfile, seriesinfo, temperature_traceoutputfile, temperature_figureoutputfile, 'Weird');
                 end
-                1 + 1 
             end
         end
     end
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     %% MP2RAGE
+    %%% this part i started implementing in order to use the MP2RAGE to
+    %%% get an estimate of T1, which is then used in the SESTE B1+ map
+    %%% calculation.
     for run = 1:length(folders.mp2rage_INV2)
         outdir = [param.processed_data_folder,'/MP2RAGE'];
         if exist(outdir) == 0
@@ -102,14 +110,15 @@ function MPM_calc_complete(param)
              
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     %% B1 mapping
+    %%% puts all intermediate calculation files in one folder
     b1_outputdir = [param.processed_data_folder,'/B1mapping'];
     system(['mkdir ',param.processed_data_folder]);
     system(['mkdir ',b1_outputdir]);
 
     %%%%%%%%%%%%% SESTE/AL B1+ %%%%%%%%%%%%%%%%%%%%%%%%%
-    if find(strcmp(param.b1_method,'AL')) > 0
-        
+    if find(strcmp(param.b1_method,'AL')) > 0 %%% if AL (Antoine Lutti) is specified as one of the methods in the param file, compute maps
        if length(folders.al_b1) > 0
+            %%% considers all runs of the b1 acquisition
             for al_repeat = 1:length(folders.al_b1)
                 %% B1 map via hMRI toolbox 
                 %%% requires also B0 map
@@ -132,8 +141,10 @@ function MPM_calc_complete(param)
                             if exist(parameter_file_new) ~= 0
                                 delete(parameter_file_new)
                             end
+                            %%% replace assumed T1 in hmri toolbox parameter file
                             system(['sed "s/1633/',num2str(param.reference_T1),'/g" ', param.hmri_processing_parameters,' > ',parameter_file_new])
                             local_default_file = [param.bashscriptfolder,'/hmri_local_defaults.m'];
+                            %%% runs b1 calculation thruogh toolbox
                             create_b1_map_with_hmri_toolbox(local_default_file,b1_files_to_use,b0_files_to_use,parameter_file_new,al_outputdir); %%% run function
                             low_res_b1_map = dir([al_outputdir,'/B1mapCalc/uB1map*.nii']); %%% b0-undistorted map without smoothing or padding
                             system(['cp ',[low_res_b1_map(1).folder,'/',low_res_b1_map(1).name],' ',curr_output_filename]);
@@ -144,7 +155,7 @@ function MPM_calc_complete(param)
        end
     end
     %%%%%%%%%%%%% AFI B1+ %%%%%%%%%%%%%%%%%%%%%%%%%
-    if find(strcmp(param.b1_method,'AFI')) > 0
+    if find(strcmp(param.b1_method,'AFI')) > 0 %%% if AFI is specified as one of the methods in the param file, compute maps
         if length(folders.afi) > 0
             for afi_repeat = 1:length(folders.afi)
                 pdw_files_for_reference = convert_dir_output_to_cell_structure(dir([folders.pdw(end).folder,'/', folders.pdw(end).name,'/*.nii'])); %%% for registration purpose take first run of pdw
@@ -167,8 +178,7 @@ function MPM_calc_complete(param)
         end
     end
     %%%%%%%%%%%%% MAFI B1+ %%%%%%%%%%%%%%%%%%%%%%%%%
-    
-    if find(strcmp(param.b1_method,'MAFI')) > 0 %%% ?????????????????
+    if find(strcmp(param.b1_method,'MAFI')) > 0 %%% this was an attempt to calculate MAFI maps which completely failed for the MALDI data
         if length(folders.mafi) > 0
             for mafi_repeat = 1:length(folders.mafi)/2
                 curr_output_filename = [b1_outputdir,'/B1map_MAFI_repeat_',sprintf('%02d',mafi_repeat),'.nii'];
@@ -188,8 +198,9 @@ function MPM_calc_complete(param)
             end
         end
     end
+    
     %%%%%%%%% BS B1+ %%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-    if find(strcmp(param.b1_method,'BS')) > 0
+    if find(strcmp(param.b1_method,'BS')) > 0 %%% this is based on something luke has done
         if length(folders.b1_bs) > 0
             for s1_bs_repeat = 1:length(folders.b1_bs)/2 %%% because always two folders
                 curr_output_filename = [b1_outputdir,'/B1map_BS_repeat_',sprintf('%02d',s1_bs_repeat),'.nii'];
@@ -205,12 +216,16 @@ function MPM_calc_complete(param)
             end
         end
     end
-    %% copy custom b1map
+    
+    %% copy custom b1map if a precalculated b1map was provided in the param structure
     if find(strcmp(param.b1_method,'custom')) > 0 & exist(param.custom_b1_filename) == 2
         curr_output_filename = [b1_outputdir,'/B1map_custom_repeat_01.nii'];
         system(['cp ', param.custom_b1_filename, ' ',curr_output_filename]);
     end
+    
     %% make a fake B1 map if none is available
+    %%% this is done so that there are no errors later, it is just a
+    %%% uniform b1 of 100%
     if find(strcmp(param.b1_method,'none')) > 0
         t1_filenames = dir([folders.t1w(1).folder,'/',folders.t1w(1).name,'/*.nii']); 
         first_echo_file = [t1_filenames(1).folder,'/',t1_filenames(1).name];
@@ -222,24 +237,29 @@ function MPM_calc_complete(param)
 
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     %% calculate MPMs for each run separately
+    %%% these are all stored in the MPM_calc directory with file names that
+    %%% do indicate which processing and corrections have been done
     mpm_output_dir = [param.processed_data_folder,'/MPM_calc'];
     system(['mkdir ', mpm_output_dir]);
     runs_to_consider = 1:length(folders.t1w);
 
+    %% start MPM processing
     for mpm_run = runs_to_consider
 
             %% create brain mask and capsule mask based on a high intensity file
-            signal_mask_file = [mpm_output_dir,'/signal_mask_',param.resolution,'_run',sprintf('%02d',mpm_run),'.nii'];
+            signal_mask_file = [mpm_output_dir,'/signal_mask_',param.resolution,'_run',sprintf('%02d',mpm_run),'.nii']; %%% this is brain mask + water capsule (if capsule was measured)
             brain_mask_file = [mpm_output_dir,'/brain_mask_',param.resolution,'_run',sprintf('%02d',mpm_run),'.nii'];
-            if exist(param.own_brain_mask_file) == 2 %%% use own brain mask file
+            if exist(param.own_brain_mask_file) == 2 %%% if it is specified in param that an already existing brain mask file should be used
                 system(['cp ',param.own_brain_mask_file,' ',brain_mask_file]);
                 system(['cp ',param.own_brain_mask_file,' ',signal_mask_file]);
             else %%% make brain mask using the specified threshold
                 brain_mask_file_diluted = [mpm_output_dir,'/brain_mask_',param.resolution,'_run',sprintf('%02d',mpm_run),'_diluted.nii'];
-                capsule_mask_file = [mpm_output_dir,'/capsule_mask_',param.resolution,'_run',sprintf('%02d',mpm_run),'.nii'];
+                capsule_mask_file = [mpm_output_dir,'/capsule_mask_',param.resolution,'_run',sprintf('%02d',mpm_run),'.nii']; %%% this may end up empty
                 t1_filenames = dir([folders.t1w(mpm_run).folder,'/',folders.t1w(mpm_run).name,'/*.nii']); 
                 first_echo_file = [t1_filenames(1).folder,'/',t1_filenames(1).name];
                 if exist(brain_mask_file) == 0 || exist(signal_mask_file) == 0
+                    %%% threshold the first echo of t1w with the signal
+                    %%% threshold specified in param
                     system(['fslmaths ',first_echo_file,' -thr ', num2str(param.bm_thr), ' -bin ',signal_mask_file]); %%% threshold based on signal intensity of raw file
                     system(['bash ', param.bashscriptfolder, '/take_largest_cluster_from_a_mask ',signal_mask_file,' ',brain_mask_file, ' ', mpm_output_dir]); %%% get rid of noisy voxels around          
                     if param.mtv_calc == 1
@@ -251,7 +271,7 @@ function MPM_calc_complete(param)
                     else
                         system(['cp ', brain_mask_file, ' ', signal_mask_file]);
                     end
-                    %%% make diluted brain mask
+                    %%% make diluted brain mask to fill some holes
                     if exist(brain_mask_file_diluted) == 0
                         system(['bash ',param.bashscriptfolder,'/fill_gaps_in_brain_mask ',brain_mask_file,' ',brain_mask_file_diluted,' 5 ', mpm_output_dir]);
                     end
@@ -259,17 +279,21 @@ function MPM_calc_complete(param)
             end
         
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% PROCESSING %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            %%% define how the file names should be called, depending on
+            %%% what processing was specified in param (this is useful in
+            %%% case a loop is run over parameters to compare the effect of
+            %%% different steps)
             processed_file_string = {'processed_s'};
 %             if param.do_denoising == 1
 %                 processed_file_string = strcat(processed_file_string,'_dn');
 %             end
-            if param.do_movement_correction == 1
+            if param.do_movement_correction == 1 %%% in case sample moved between sequences
                 processed_file_string = strcat(processed_file_string,'_reg');
             end
-            if param.do_receive_bias_correction == 1
+            if param.do_receive_bias_correction == 1 %%% just relevant for PD
                 processed_file_string = strcat(processed_file_string,'_rbc');
             end
-            if param.do_distortion_correction == 1
+            if param.do_distortion_correction == 1 %%% to account for tiny shifts between odd and even echos
                 processed_file_string = strcat(processed_file_string,'_u');
             end
             processed_file_string =  processed_file_string{1};
@@ -277,13 +301,13 @@ function MPM_calc_complete(param)
             if exist(processed_file_folder) == 0
                 system(['mkdir ', processed_file_folder]);
             end
-            %%% copy all raw files to the processed directory
+            %% copy all raw files to the processed directory
             try %%% if we have mtw
                  all_folders = {folders.t1w(mpm_run).name, folders.pdw(mpm_run).name, folders.mtw(mpm_run).name};
             catch
                  all_folders = {folders.t1w(mpm_run).name, folders.pdw(mpm_run).name};
             end
-            if length(folders.additionalFA) > 0
+            if length(folders.additionalFA) > 0 %%% if another weighting was acquired (usually that would be ernst angle)
                 try
                     all_folders = {folders.pdw(mpm_run).name, folders.t1w(mpm_run).name, folders.mtw(mpm_run).name, folders.additionalFA(mpm_run).name};
                 catch
@@ -305,8 +329,11 @@ function MPM_calc_complete(param)
                       system(['mkdir ', to_corr_foldername])
                       to_corr_filenames = dir([to_corr_foldername,'/s*.nii']);
                       to_corr_jsonfilenames = dir([to_corr_foldername,'/s*.json']);
-                      if folder == 1
-                          reference_image = [to_corr_filenames(1).folder,'/',to_corr_filenames(1).name];
+                      if folder == 1 %%% this is the first sequence which is used as reference sequence
+                          %%% in the param, it is specified which echo
+                          %%% should be the reference echo
+                          reference_image = [to_corr_filenames(param.echo2reg).folder,'/',to_corr_filenames(param.echo2reg).name]; %%% change referene image to be a file with more
+                          %%% contrast!
                           %%% just copy files
                           for f = 1:length(to_corr_filenames)
                             niftifilename_in = to_corr_filenames(f).name;
@@ -320,20 +347,24 @@ function MPM_calc_complete(param)
                                 system(['cp ', to_corr_foldername,'/',jsonfilename_in, ' ', to_corr_foldername,'/',jsonfilename_out]);
                             end
                           end
-                      else
-                          registration_img = [to_corr_filenames(1).folder,'/',to_corr_filenames(1).name];
+                      else %%% now the images in the other folders are registered
+                          registration_img = [to_corr_filenames(param.echo2reg).folder,'/',to_corr_filenames(param.echo2reg).name];
                           reg_matrix = [to_corr_foldername,'/affine'];
+                          %%% use flirt to compute a registration matrix
+                          %%% with the parameter file specified DOF
                           if exist(reg_matrix) == 0
-                            system(['flirt -in ', registration_img, ' -ref ', reference_image ,' -dof 12 -omat ', reg_matrix]);
+                            system(['flirt -in ', registration_img, ' -ref ', reference_image ,' -dof ',num2str(param.mocodof),' -omat ', reg_matrix]);
                           end
                           for f = 1:length(to_corr_filenames)
                             niftifilename_in = to_corr_filenames(f).name;
                             niftifilename_out = ['reg_', niftifilename_in];
+                            %%% apply the registration matrix
                             if exist([to_corr_foldername,'/',niftifilename_out]) == 0 && strcmp(niftifilename_in(1),'s') == 1
                                 system(['flirt -in ', to_corr_foldername,'/',niftifilename_in, ' -ref ', reference_image, ' -applyxfm -init ', reg_matrix , ' -out ', to_corr_foldername,'/',niftifilename_out]);
                             end
                             jsonfilename_in = to_corr_jsonfilenames(f).name;
                             jsonfilename_out = ['reg_', jsonfilename_in];
+                            %%% json file just copied over
                             if exist(jsonfilename_out) == 0 && strcmp(niftifilename_in(1),'s') == 1
                                 system(['cp ', to_corr_foldername,'/',jsonfilename_in, ' ', to_corr_foldername,'/',jsonfilename_out]);
                             end
@@ -347,11 +378,16 @@ function MPM_calc_complete(param)
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             %% receive bias correction
             %%% 1: make highres rb map
+            %%% this is based on the comparison of low resolution images
+            %%% acquired with the receive vs transmit coil
+            %%% for the Terra scanner some of the echos in these sequences
+            %%% were sometimes very corrupted so this does not work as well
+            %%% anymore. 
             if param.do_receive_bias_correction == 1 && length(folders.receive_bias_receive) > 0 && length(folders.receive_bias_transmit) > 0 
                 receive_bias_map_to_use = [mpm_output_dir,'/receive_bias_average_map.nii'];
                 high_res_rb_map = [mpm_output_dir,'/receive_bias_map_highres_',param.resolution,'_run',sprintf('%02d',mpm_run),'.nii']; %%% decide on output file name
                 if exist(receive_bias_map_to_use) == 0 
-                    for repeat = 1:length(folders.receive_bias_receive)
+                    for repeat = 1:length(folders.receive_bias_receive) %%% consider various runs
                         receive_nifti_folder = [folders.receive_bias_receive(repeat).folder,'/',folders.receive_bias_receive(repeat).name];
                         transmit_nifti_folder = [folders.receive_bias_transmit(repeat).folder,'/',folders.receive_bias_transmit(repeat).name];
                         output_filename = [mpm_output_dir,'/receive_bias_repeat_',sprintf('%02d',repeat),'.nii'];
@@ -367,18 +403,18 @@ function MPM_calc_complete(param)
                     system(['fslmaths ',mpm_output_dir,'/receive_bias_all_repeats.nii -Tmean ',receive_bias_map_to_use]);
                 end
                 if exist(high_res_rb_map) == 0 
-                    %%% process 
+                    %%% process this map like the b1map
                     system(['bash ', param.bashscriptfolder, '/new_b1_processing_median_filter ',receive_bias_map_to_use,' ',signal_mask_file,' ',high_res_rb_map,' ',param.rbmap_smooth_in_mm_median,' ',param.rbmap_smooth_in_mm,' ',mpm_output_dir]);
                 end
                 
-                %%% 2: correct data
+                %%% 2: correct data (for scripting simplicity the weighted files are
+                %%% corrected before MPMs calculated)
                 for folder = 1:length(all_folders)
                       to_corr_foldername = [processed_file_folder,'/',all_folders{folder}];
                       if length(dir([to_corr_foldername, '/u2*2.*'])) > 0
                         system(['yes | rm ', to_corr_foldername, '/u2*2.*'])
                       end
-%                       to_corr_filenames = dir([to_corr_foldername,'/*.nii']);
-%                       to_corr_jsonfilenames = dir([to_corr_foldername,'/*.json']);
+                      %%% define what the input filenames should be
                       if param.do_movement_correction == 1
                          to_corr_filenames = dir([to_corr_foldername,'/reg*.nii']);
                          to_corr_jsonfilenames = dir([to_corr_foldername,'/reg*.json']);
@@ -390,11 +426,15 @@ function MPM_calc_complete(param)
                         niftifilename_in = to_corr_filenames(f).name;
                         niftifilename_out = ['rbc_', niftifilename_in];
                         if exist([to_corr_foldername,'/',niftifilename_out]) == 0 && (strcmp(niftifilename_in(1),'s') == 1 || strcmp(niftifilename_in(1),'r') == 1)
+                            %%% correct by dividing weighted images by
+                            %%% receive bias map
                             system(['fslmaths ', to_corr_foldername,'/',niftifilename_in, ' -div ', high_res_rb_map, ' ', to_corr_foldername,'/',niftifilename_out]);
                         end
                         jsonfilename_in = to_corr_jsonfilenames(f).name;
                         jsonfilename_out = ['rbc_', jsonfilename_in];
                         if exist(jsonfilename_out) == 0 && (strcmp(niftifilename_in(1),'s') == 1 || strcmp(niftifilename_in(1),'r') == 1)
+                            %%% again just copy over the json file so that
+                            %%% it exists
                             system(['cp ', to_corr_foldername,'/',jsonfilename_in, ' ', to_corr_foldername,'/',jsonfilename_out]);
                         end
                       end
@@ -408,13 +448,15 @@ function MPM_calc_complete(param)
             if param.do_distortion_correction == 1
                 for folder = 1:length(all_folders)
                       to_corr_foldername = [processed_file_folder,'/',all_folders{folder}];
+                      %%% complicated way to define what the input filename
+                      %%% should be called like
                       if param.do_receive_bias_correction == 1
                              to_corr_filenames = dir([to_corr_foldername,'/rbc*.nii']);
                              to_corr_jsonfilenames = dir([to_corr_foldername,'/rbc*.json']);
                       else
                           if param.do_movement_correction == 1
-                           to_corr_filenames = dir([to_corr_foldername,'/reg*.nii']);
-                           to_corr_jsonfilenames = dir([to_corr_foldername,'/reg*.json']);
+                            to_corr_filenames = dir([to_corr_foldername,'/reg*.nii']);
+                                to_corr_jsonfilenames = dir([to_corr_foldername,'/reg*.json']);
                           else
                              to_corr_filenames = dir([to_corr_foldername,'/s*.nii']);
                              to_corr_jsonfilenames = dir([to_corr_foldername,'/s*.json']);
@@ -424,8 +466,11 @@ function MPM_calc_complete(param)
                       output_bfield = [processed_file_folder,'/HySCOv2_Geom_',all_folders{folder},'.nii'];
                       check_if_output_exists = dir([to_corr_foldername,'/u*.nii']);
                       if length(check_if_output_exists) < length(to_corr_filenames)
-                        apply_niks_distortion_correction(convert_dir_output_to_cell_structure(to_corr_filenames), output_geom, output_bfield, to_corr_foldername)
+                          %%% use nik's script to perform the correction
+                        apply_niks_distortion_correction(convert_dir_output_to_cell_structure(to_corr_filenames), output_geom, output_bfield, to_corr_foldername, param.permdim)
                       end
+                      %%% copy over json filenames so that corrected files
+                      %%% can be used
                       for f = 1:length(to_corr_jsonfilenames)
                          jsonfilename_in = to_corr_jsonfilenames(f).name;
                          jsonfilename_out = ['u', jsonfilename_in];
@@ -450,13 +495,14 @@ function MPM_calc_complete(param)
                         %padding_parameter_in_vxs = 3; %%% number of voxels being padded roughly
                         %process_b1_map(map_to_process, signal_mask_file, smooth_in_mm, padding_parameter_in_vxs, new_map);
                         if strcmp(param.b1_method_to_use,'none')
+                            %%% the uniform b1map only has to be upsampled
                             system(['flirt -ref ', signal_mask_file, ' -in ', map_to_process, ' -out ', new_map , ' -applyxfm -usesqform -interp nearestneighbour ']);                        
-                        else
-                            ['bash ', param.bashscriptfolder, '/new_b1_processing ',map_to_process,' ',signal_mask_file,' ',new_map,' ',num2str(param.b1map_smooth_in_mm),' ',b1_outputdir]
+                        else %%% for all actual b1 maps an optimised processing is applied (to smooth across the very strong boundaries)
+                           % ['bash ', param.bashscriptfolder, '/new_b1_processing ',map_to_process,' ',signal_mask_file,' ',new_map,' ',num2str(param.b1map_smooth_in_mm),' ',b1_outputdir]
                             system(['bash ', param.bashscriptfolder, '/new_b1_processing ',map_to_process,' ',signal_mask_file,' ',new_map,' ',num2str(param.b1map_smooth_in_mm),' ',b1_outputdir]);
                         end
                     end
-                    %%% create average map and CVs for unprocessed
+                    %%% create average map and CVs (coefficient of variation maps across the repetition) for unprocessed
                     system(['fslmerge -t ',b1_outputdir,'/B1map_',b1_map_type,'_all_repeats ',b1_outputdir,'/B1map_',b1_map_type,'_repeat*.nii']);
                     system(['fslmaths ',b1_outputdir,'/B1map_',b1_map_type,'_all_repeats.nii -Tmean ',b1_outputdir,'/B1map_',b1_map_type,'_mean.nii']);
                     system(['fslmaths ',b1_outputdir,'/B1map_',b1_map_type,'_all_repeats.nii -Tstd ',b1_outputdir,'/B1map_',b1_map_type,'_std.nii']);
@@ -471,7 +517,7 @@ function MPM_calc_complete(param)
                 end
             end
 
-            %% IMPLEMENT B1 COMPARISON HERE
+            %% IMPLEMENT B1 COMPARISON HERE (in case several b1mapping approaches were used, a figure is created to illustrate correspondence)
             b1_comp_figure_filename = [b1_outputdir,'/',param.unique_id,'_B1map_comparison_',param.resolution,'.png'];
             if length(param.b1_method)>1 && exist(b1_comp_figure_filename) == 0
                 subpl_count = 1;
@@ -487,8 +533,7 @@ function MPM_calc_complete(param)
                         subpl_count = subpl_count + 1;
                         compare_B1_maps_with_BA(b1_map1_filename, b1_map2_filename);
                         xlabel(['mean (',param.b1_method{b1},'&',param.b1_method{b2},')'])
-                        ylabel(['diff (',param.b1_method{b1},'-',param.b1_method{b2},')'])
-                        
+                        ylabel(['diff (',param.b1_method{b1},'-',param.b1_method{b2},')'])       
                     end
                 end
                 try
@@ -507,7 +552,8 @@ function MPM_calc_complete(param)
                 B1vol = spm_vol(high_res_b1_map);
                 percB1 = spm_read_vols(B1vol);
                
-
+                %% now calculate MPMs 
+                %%% but only if they do not exist yet
                 if 1 == 1 %exist([mpm_output_dir,'/MTsat_real_TE0_WLS_',processed_file_string,'_',param.resolution,'_run',sprintf('%02d',mpm_run),'_brain_masked.nii']) == 0 %% && exist([mpm_output_dir,'/R1_rbc_',param.resolution,'_run',sprintf('%02d',mpm_run),'_brain_masked.nii']) == 0
 
                     
@@ -518,7 +564,7 @@ function MPM_calc_complete(param)
 
                     proc_parts = strsplit(processed_file_string, '_'); %%% all elements of processing
                 
-                    for echo_iteration = 1:length(param.echos_to_use)
+                    for echo_iteration = 1:length(param.echos_to_use) %%% this specifies which echos should be used for calculation. skipfirst was introduced for saturated images
                        whatecho = param.echos_to_use{echo_iteration}; %%% either all or number of echos to use
                        if ~strcmp(whatecho, 'all') & ~strcmp(whatecho, 'skipfirst')
                             processed_file_string_with_echos = [processed_file_string,'_',sprintf('%.02d',whatecho),'echos'];
@@ -526,7 +572,7 @@ function MPM_calc_complete(param)
                            processed_file_string_with_echos = processed_file_string; %%% all does not need to be specified
                        end
                        
-                        %%% find filenames
+                        %% find filenames and make a useable data structure for each weighting
                         weighted_fieldnames = {'t1w', 'pdw','mtw','additionalFA'}
                         for f = 1:length(weighted_fieldnames);
                             weighted_fieldname = weighted_fieldnames{f};
@@ -552,12 +598,12 @@ function MPM_calc_complete(param)
                             end
                         end
                         
-                        if param.correct_fa == 1
+                        if param.correct_fa == 1 %%% this was introduced to check the voltages in order to correct the flip angle (in case the desired flip angle - that is noted in the json file - was not actually achieved)
                             effective_t1w_fa = weighted.data.pdw.desired_fa * weighted.data.t1w.srf01/weighted.data.pdw.srf01 * weighted.data.t1w.sinc_pulse_duration/weighted.data.pdw.sinc_pulse_duration;
                         else
                             effective_t1w_fa = weighted.data.t1w.desired_fa;
                         end
-                        if ~isnan(effective_t1w_fa)
+                        if ~isnan(effective_t1w_fa) %%% write the actual flip angle out
                             dlmwrite([mpm_output_dir,'/effective_t1w_fa_',param.resolution,'_run',sprintf('%02d',mpm_run)],effective_t1w_fa)
                         else
                             effective_t1w_fa = weighted.data.t1w.desired_fa;
@@ -565,12 +611,17 @@ function MPM_calc_complete(param)
                         weighted.data.t1w.fa = deg2rad(effective_t1w_fa);
 
                         %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-                        %% calculate R2s
+                        %% calculate R2s with toolbox
 
                         TR = weighted.data.t1w(1).TR; % assumed equal for all acquisition
                         try
                             MAPS.T1w_echo8 = weighted.data.t1w.data(:,:,:,8);
                         end
+                        %%% first implement an OLS fit. if mask for bubbles
+                        %%% is desired then the model fit will also be
+                        %%% provided. this is computationally expensive
+                        %%% (due to inefficient implementation), so only
+                        %%% done when explicitely desired
                         if param.createbubblemask == 1
                             try
                                 [R2s_OLS,varexpl,PDw0_OLS,T1w0_OLS,MTw0_OLS] = weighted2R2s_IL_model_fit(weighted.data.pdw,weighted.data.t1w,weighted.data.mtw); 
@@ -581,6 +632,10 @@ function MPM_calc_complete(param)
                             R2s_OLSvals = R2s_OLS.data(:);
                             idx = find(R2s_OLSvals > 0);
                             thresh = nanmean(R2s_OLSvals) + 2*nanstd(R2s_OLSvals); %%% establish that values in suspected bubbles need to be outliers in distribution
+                            %%% create a preliminary mask by using voxels
+                            %%% with less than 98% of variance explained
+                            %%% and R2* values that are more than 2 std
+                            %%% higher than the mean
                             MAPS.bubble_mask_preliminary = varexpl < .98 & R2s_OLS.data > thresh;
                             MAPS.OLSfit_R2 = varexpl;
                         else
@@ -594,30 +649,45 @@ function MPM_calc_complete(param)
                         MAPS.PDw0_OLS = PDw0_OLS.data;
                         MAPS.T1w0_OLS = T1w0_OLS.data;
 
-                        %%% calculate R2s for each contrast with hMRI
+                        %% this is not used routinely but can be adapted if separate R2s for the different contrasts are desired
+                         %%% calculate R2s for each contrast with hMRI
                         %%% toolbox
-                        wims = fieldnames(weighted.filenames);
-                        if 1 == 2
-                        for i = 1:length(wims)
-                            con = wims{i};
-                            hmri_output_dir = [mpm_output_dir,'/hmri_toolbox_folder_',processed_file_string_with_echos,'_',param.resolution,'_run',sprintf('%02d',mpm_run),'_only_',con];  
+                         wims = fieldnames(weighted.filenames);
+                         if 1 == 2
+                         for i = 1:length(wims)
+                             con = wims{i};
+                             hmri_output_dir = [mpm_output_dir,'/hmri_toolbox_folder_',processed_file_string_with_echos,'_',param.resolution,'_run',sprintf('%02d',mpm_run),'_only_',con];  
                             local_default_file = [param.bashscriptfolder,'/hmri_local_defaults.m'];
                             if exist([hmri_output_dir,'/Results']) == 0
                                 MPMcalc_basic_with_hmri_toolbox(local_default_file, hmri_output_dir, convert_dir_output_to_cell_structure(weighted.filenames.(con)), convert_dir_output_to_cell_structure(weighted.filenames.(con)), convert_dir_output_to_cell_structure(weighted.filenames.(con))); %%% trick the toolbox and provide twice the same
                             end
-                            r2s_fname = dir([hmri_output_dir,'/Results/*R2s_WOLS.nii']);
+                             r2s_fname = dir([hmri_output_dir,'/Results/*R2s_WOLS.nii']);
                             try
                                 mapname = ['R2s_WLS_only_',con];                          
                                 MAPS.(mapname) = spm_read_vols(spm_vol([r2s_fname.folder,'/',r2s_fname.name]));
                             end
                         end
-                        end
+                         end
                             
-                        %%% calculate R2s with hMRI toolbox
-                        hmri_output_dir = [mpm_output_dir,'/hmri_toolbox_folder_',processed_file_string_with_echos,'_',param.resolution,'_run',sprintf('%02d',mpm_run)];  
+                        
+                        %% test luke's own R2s implementation
+%                         [testr2s extrap] = hmri_calc_R2s_luke({weighted.data.pdw, weighted.data.t1w});
+%                         %%% change data structure so that it fits with
+%                         %%% luke's new function
+%                         weighted.data.t1w2 = weighted.data.pdw; weighted.data.t1w2.TE = weighted.data.t1w2.TEs;
+%                         weighted.data.pdw2 = weighted.data.pdw; weighted.data.pdw2.TE = weighted.data.pdw2.TEs;
+%                         a(1) =  weighted.data.t1w2; a(2) =  weighted.data.pdw2;
+%                         [testr2s extrap] = hmri_calc_R2s_luke(a,'wls3');
+%                         MAPS.R2sLukeTest = testr2s;
+%                         [testr2s extrap] = hmri_calc_R2s_luke(a,'ols');
+%                         MAPS.R2sLukeTestOls = testr2s;
+                        
+                        %% calculate R2s with hMRI toolbox
+                         hmri_output_dir = [mpm_output_dir,'/hmri_toolbox_folder_',processed_file_string_with_echos,'_',param.resolution,'_run',sprintf('%02d',mpm_run)];  
                         local_default_file = [param.bashscriptfolder,'/hmri_local_defaults.m'];
 
                         %system(['yes | rm -R ', hmri_output_dir]); %%% rerun calculations
+                        %%% run pipeline to get output folder
                         if exist([hmri_output_dir,'/Results']) == 0
                             
                             if isfield(weighted.filenames,'mtw') ~= 0
@@ -629,12 +699,16 @@ function MPM_calc_complete(param)
                             end
                         end
 
-                        r2s_fname = dir([hmri_output_dir,'/Results/*R2s_WOLS.nii']);
+                        %%% specifiy filenames to take from output folder
+                         r2s_fname = dir([hmri_output_dir,'/Results/*R2s_WOLS.nii']);
                         pdw0_fname = dir([hmri_output_dir,'/Results/Supplementary/*PDw_WOLSfit_TEzero.nii']);
                         t1w0_fname = dir([hmri_output_dir,'/Results/Supplementary/*T1w_WOLSfit_TEzero.nii']);
                         mtw0_fname = dir([hmri_output_dir,'/Results/Supplementary/*MTw_WOLSfit_TEzero.nii']);
 
-                        MPMvol = spm_vol([r2s_fname.folder,'/',r2s_fname.name]);
+                        
+                        %%% read in the files
+                        
+                         MPMvol = spm_vol([r2s_fname.folder,'/',r2s_fname.name]);
 
                         R2s_WLS = R2s_OLS; %%% copy info 
                         R2s_WLS.data = spm_read_vols(spm_vol([r2s_fname.folder,'/',r2s_fname.name]));
@@ -681,13 +755,13 @@ function MPM_calc_complete(param)
                         end
 
                         %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-                        %% calculate R1
+                        %% calculate R1, either just using the first echo (echo1) or the interpolation to te = 0 (TE0, either obtained from OLS or from WLS)
                         PDw_echo1 = averageEchoes(weighted.data.pdw,1);
                         T1w_echo1 = averageEchoes(weighted.data.t1w,1);
                         try
                           additionalFAw_echo1 = averageEchoes(weighted.data.additionalFA,1);  
                         end
-                        if length(folders.additionalFA) > 0 
+                        if length(folders.additionalFA) > 0 %%% if an additional weighitng was used
                             %additionalFA_echo1 = averageEchoes(weighted.data.additionalFAw,1);
                             %[Aavg,R1_not_used] = PDwT1w2quant(PDw_echo1,T1w_echo1,TR,'exact',percB1/100); %%% Luke's function requires the B1 map to be in fraction, not in percent
                             [A_echo1_additionalFA,R1_echo1_additionalFA] = weighted2AR1({PDw_echo1,T1w_echo1,additionalFAw_echo1},TR,'exact',percB1/100); 
@@ -701,6 +775,8 @@ function MPM_calc_complete(param)
                         [A_TE0_WLS_b1uncorr,R1_TE0_WLS_b1uncorr] = weighted2AR1({PDw0_WLS,T1w0_WLS},TR,'exact',percB1.^0);
                         [A_TE0_OLS,R1_TE0_OLS] = weighted2AR1({PDw0_OLS,T1w0_OLS},TR,'exact',percB1/100);
 
+                        %%% save the MPMs in a MAP structure that has all
+                        %%% of them
                         MAPS.A_echo1 = A_echo1.data;
                         MAPS.R1_echo1 = R1_echo1.data;
                         MAPS.A_echo1_b1uncorr = A_echo1_b1uncorr.data;
@@ -710,8 +786,11 @@ function MPM_calc_complete(param)
                         MAPS.A_TE0_WLS_b1uncorr = A_TE0_WLS_b1uncorr.data;
                         MAPS.R1_TE0_WLS_b1uncorr = R1_TE0_WLS_b1uncorr.data;
 
+                        %% if specified, then do slice profile correction
                         if (strcmp(param.resolution,'0p4') || strcmp(param.resolution,'0p3')) && param.dosliceprofilecorrection == 1
-                            %% load slice profile 
+                            %%% load slice profile, this needs to be
+                            %%% available, and then is interpolated to
+                            %%% different resolution?
                             load(param.slice_profile_file)
                             if ~strcmp(param.resolution,'0p4') 
                                 %%% interpolate in space
@@ -721,13 +800,10 @@ function MPM_calc_complete(param)
                                 end
                                 Sprofile = Slab2;
                             end
-
                             [A_echo1_spc,R1_echo1_spc,b1_corr_fa_maps,actual_fa_maps,R1_error] = weighted2AR1_slice_profile_correction({PDw_echo1,T1w_echo1},TR,'spr',percB1/100,Sprofile,90*(0.05:0.05:1));
                             MAPS.R1_echo1_spc = R1_echo1_spc.data;
-
                             [A_TE0_WLS_spc,R1_TE0_WLS_spc,b1_corr_fa_maps,actual_fa_maps,R1_error] = weighted2AR1_slice_profile_correction({PDw0_WLS,T1w0_WLS},TR,'spr',percB1/100,Sprofile,90*(0.05:0.05:1));
                             MAPS.R1_TE0_WLS_spc = R1_TE0_WLS_spc.data;
-
                             %%% estimate b1+ for unselective                          
                             pdw_b1rel_total = 1 + (actual_fa_maps(:,:,:,1) - rad2deg(weighted.data.pdw.fa)) ./ rad2deg(weighted.data.pdw.fa);
                             pdw_b1rel_spc = 1 + (pdw_b1rel_total - percB1/100);
@@ -743,13 +819,23 @@ function MPM_calc_complete(param)
                             if strcmp(approach,'echo1')
                                MTw_to_use = averageEchoes(weighted.data.mtw,1);
                                PDw_to_use = PDw_echo1;
-                               R1_to_use = R1_echo1_b1uncorr; %%% MTsat calculation needs b1 uncorrected maps as input
-                               A_to_use = A_echo1_b1uncorr;
+                               if param.mtsatusesmallFA == 1 %%% if the small FA assumption is used
+                                R1_to_use = R1_echo1_b1uncorr; %%% conventional MTsat calculation needs b1 uncorrected maps as input
+                                A_to_use = A_echo1_b1uncorr;
+                               else %%% this is now the new default, to use the corrected maps as input and our newly developed b1 correction for mtsat
+                                R1_to_use = R1_echo1; 
+                                A_to_use = A_echo1; 
+                               end
                             elseif strcmp(approach,'TE0_WLS')
                                MTw_to_use = MTw0_WLS;
                                PDw_to_use = PDw0_WLS;
-                               R1_to_use = R1_TE0_WLS_b1uncorr;
-                               A_to_use = A_TE0_WLS_b1uncorr;
+                               if param.mtsatusesmallFA == 1
+                                   R1_to_use = R1_TE0_WLS_b1uncorr;
+                                   A_to_use = A_TE0_WLS_b1uncorr;
+                               else
+                                   R1_to_use = R1_TE0_WLS; 
+                                   A_to_use = A_TE0_WLS; 
+                               end
                             end
                             %%% MTR
                             mapname = strcat('MTR_',approach);
@@ -757,7 +843,13 @@ function MPM_calc_complete(param)
                             MAPS.(mapname)(isnan(MAPS.(mapname))) = 0;
                             %%% MTsat
                             mapname = strcat('MTsat_real_',approach);
-                            MTsat = computeMTsatApprox(A_to_use,R1_to_use,MTw_to_use,TR);
+                            if param.mtsatusesmallFA == 1 %%% old approach
+                                MTsat = computeMTsatApprox(A_to_use,R1_to_use,MTw_to_use,TR);
+                            else %%% new approach
+                                MTsat = computeMTsatApprox_using_exact_FAs(A_to_use,R1_to_use,MTw_to_use,TR,percB1);
+                                %%% if i divide this by ft^2, then i get a
+                                %%% map that is "intrinsically corrected"
+                            end
                             MAPS.(mapname) = MTsat.data;
                             %%% slice profile correction
                             if (strcmp(param.resolution,'0p4') || strcmp(param.resolution,'0p3')) && param.dosliceprofilecorrection == 1
@@ -765,42 +857,34 @@ function MPM_calc_complete(param)
                                 mapname = [mapname,'_spc']; 
                                 MAPS.(mapname) = MTsat_spc; 
                             end
-                            %%% rescale to 700
-                            if param.rescale_mt_pulse_degree > 0
+                            %% rescale to assumed mt pulse flip angle of 700
+                            if param.rescale_mt_pulse_degree > 0 %%% this specifies target flip angle
                                 first_mtw_filename = [weighted.filenames.mtw(1).folder,'/',weighted.filenames.mtw(1).name];
                                 first_mtw_json = [first_mtw_filename(1:end-3),'json'];
                                 [desired_fa, sinc_pulse_duration, srf01, srf02, mt_gaussian] = get_fa_parameters_from_json_file(first_mtw_json);
                                 nominal_fa_rad = deg2rad(mt_gaussian);
                                 desired_fa_rad = deg2rad(param.rescale_mt_pulse_degree);
-                                MTrescaled = interpolate_mt_map_to_different_mt_pulse_with_C(MAPS.(mapname), param.mt_b1_correction_slope, nominal_fa_rad, desired_fa_rad);
+                                %MTrescaled = interpolate_mt_map_to_different_mt_pulse_with_C(MAPS.(mapname), param.mt_b1_correction_slope, nominal_fa_rad, desired_fa_rad);
+                                fake_b1map = (percB1 .^ 0) * 100 * (nominal_fa_rad / desired_fa_rad); %%% fake consistent b1map in perc
+                                MTrescaled = b1_correct_mt_map_linear(MAPS.(mapname), fake_b1map, param.mt_b1_correction_C); %%% new correction function
                                 mapname1 = [mapname,'_rescaled_to_FA',num2str(param.rescale_mt_pulse_degree)]; 
-                                MAPS.(mapname1) = MTrescaled;
-                                MTrescaled_new = interpolate_mt_map_to_different_mt_pulse_with_C1_and_C2(MAPS.(mapname), param.mt_b1_correction_C1,param.mt_b1_correction_C2 , nominal_fa_rad, desired_fa_rad);
-                                mapname2 = [mapname,'_rescaled_to_FA',num2str(param.rescale_mt_pulse_degree),'_C1C2']; 
-                                MAPS.(mapname2) = MTrescaled_new;
+                                MAPS.(mapname1) = MTrescaled;   
                             else
                                 mapname1 = mapname;
-                                mapname2 = mapname;
                             end
-                            %%% then b1+ correct rescaled or normal map
-                            MTb1corr = b1_correct_mt_map(MAPS.(mapname1), percB1, param.mt_b1_correction_slope);
+                            %% then b1+ correct rescaled or normal map
+                            MTb1corr = b1_correct_mt_map_linear(MAPS.(mapname1), percB1, param.mt_b1_correction_C);
                             mapname1 = strcat(mapname1,'_b1corrected');
                             MAPS.(mapname1) = MTb1corr;
-                            MTb1corr_new = b1_correct_mt_map_with_new_model(MAPS.(mapname2), percB1, param.mt_b1_correction_C1, param.mt_b1_correction_C2);
-                            mapname2 = strcat(mapname2,'_b1corrected_C1C2');
-                            MAPS.(mapname2) = MTb1corr_new;
-                            mapname = mapname2;
                         end
 
                     end
                     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
                     %% save and brain mask all in the MAPS structure
-
-%                    MAPS.pdw_b1rel_spc = pdw_b1rel_spc
-%                    MAPS.t1w_b1rel_spc = t1w_b1rel_spc
-
+                    
                      save_and_brain_mask_files_from_MAPS_structure(MAPS, MPMvol, brain_mask_file, mpm_output_dir, processed_file_string_with_echos, mpm_run, param.resolution)
                      
+                     %% this was an attempt to interpolate the values in the buubles with surrounding values, have never optimised
                      if param.createbubblemask == 1
                          %%% this part is WIP for interpolating from
                          %%% surrounding areas
@@ -811,6 +895,7 @@ function MPM_calc_complete(param)
                             bubble_mask_preliminary_filename = [mpm_output_dir, '/bubble_mask_preliminary_', processed_file_string, '_', param.resolution,'_run', sprintf('%.02d',mpm_run), '_brain_masked.nii'];
                             bubble_mask_final_filename = [mpm_output_dir, '/bubble_mask_', processed_file_string, '_', param.resolution,'_run', sprintf('%.02d',mpm_run), '_brain_masked.nii'];
                             brain_masked_interpolated_filename = [mpm_output_dir, '/', mapname,'_interpolated_', processed_file_string, '_', param.resolution,'_run', sprintf('%.02d',mpm_run), '_brain_masked.nii'];
+                            %%% try to improve the bubble mask a bit
                             system(['bash ~/Documents/scripts/postmortembrain-mpm/Calculation/functions/interpolate_bad_r2s ', brain_masked_filename, ' ', bubble_mask_preliminary_filename, ' ', bubble_mask_final_filename,' ', brain_masked_interpolated_filename, ' ', mpm_output_dir]);
                          end
                          %%% this part fills the bubble gaps eith echo1

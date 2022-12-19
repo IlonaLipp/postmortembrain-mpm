@@ -1,4 +1,4 @@
-function apply_niks_distortion_correction(input_echos, output_geom, output_bfield, output_corr)
+function apply_niks_distortion_correction(input_echos, output_geom, output_bfield, output_corr, permdim)
     %%% writes SPM batches to run distortion correction as implemented by
     %%% nik. it puts the corrected files in a now folder and also copies
     %%% the original json files over, so that they can be loaded into MPM
@@ -45,7 +45,7 @@ function apply_niks_distortion_correction(input_echos, output_geom, output_bfiel
     matlabbatch{1}.spm.tools.dti.prepro_choice.hysco_choice.hysco2.source_dw = {[output_geom,',1']}; %{'/data/pt_02101/preprocessed/007_C_C_NEGRA_ID/mr/191026_Magnetom_7T_32Ch_WB/distortion_correction/pdw_kp_mtflash3d_v1d_2p1_0023_geom.nii,1'};
     matlabbatch{1}.spm.tools.dti.prepro_choice.hysco_choice.hysco2.others_up = {''};
     matlabbatch{1}.spm.tools.dti.prepro_choice.hysco_choice.hysco2.others_dw = {''};
-    matlabbatch{1}.spm.tools.dti.prepro_choice.hysco_choice.hysco2.perm_dim = 1;
+    matlabbatch{1}.spm.tools.dti.prepro_choice.hysco_choice.hysco2.perm_dim = permdim;
     matlabbatch{1}.spm.tools.dti.prepro_choice.hysco_choice.hysco2.dummy_fast = 1;
     matlabbatch{1}.spm.tools.dti.prepro_choice.hysco_choice.hysco2.dummy_ecc = 0;
     matlabbatch{1}.spm.tools.dti.prepro_choice.hysco_choice.hysco2.alpha = 50;
@@ -75,7 +75,7 @@ function apply_niks_distortion_correction(input_echos, output_geom, output_bfiel
     matlabbatch{2}.spm.tools.dti.prepro_choice.hysco_choice.hysco_write.others_up = input_array_even';
     matlabbatch{2}.spm.tools.dti.prepro_choice.hysco_choice.hysco_write.others_dw = input_array_odd';
     matlabbatch{2}.spm.tools.dti.prepro_choice.hysco_choice.hysco_write.bfield = {[output_bfield,',1']};
-    matlabbatch{2}.spm.tools.dti.prepro_choice.hysco_choice.hysco_write.perm_dim = 1;
+    matlabbatch{2}.spm.tools.dti.prepro_choice.hysco_choice.hysco_write.perm_dim = permdim;
     matlabbatch{2}.spm.tools.dti.prepro_choice.hysco_choice.hysco_write.dummy_3dor4d = 0;
    
     [fol fi] = fileparts(input_echos{1});
